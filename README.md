@@ -90,7 +90,7 @@ npm run serve
 
 ## 六、第三步：接入 GitHub Actions
 
-在你的仓库中创建 `.github/workflows/code-review.yml`：
+在你的仓库中创建 `.github/workflows/code-review.yml`, 注意sdk模块的Jar包放在本仓库release下：
 
 ```yaml
 name: AI Code Review
