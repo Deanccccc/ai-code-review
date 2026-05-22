@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lz.server.mapper.ReviewRecordMapper">
+
+    <resultMap id="BaseResultMap" type="com.lz.server.model.entity.ReviewRecord">
+        <id column="id" property="id"/>
+        <result column="project_name" property="projectName"/>
+        <result column="branch_name" property="branchName"/>
+        <result column="commit_author" property="commitAuthor"/>
+        <result column="commit_message" property="commitMessage"/>
+        <result column="diff_code" property="diffCode"/>
+        <result column="file_count" property="fileCount"/>
+        <result column="additions" property="additions"/>
+        <result column="deletions" property="deletions"/>
+        <result column="file_list" property="fileList"/>
+        <result column="review_result" property="reviewResult"/>
+        <result column="ai_model" property="aiModel"/>
+        <result column="status" property="status"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id
+        , project_name, branch_name, commit_author, commit_message,
+        diff_code, file_count, additions, deletions, file_list,
+        review_result, ai_model, status,
+        error_message, create_time
+    </sql>
+
+    <insert id="insert" parameterType="com.lz.server.model.entity.ReviewRecord" useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO t_review_record (project_name, branch_name, commit_author, commit_message,
+                                     diff_code, file_count, additions, deletions, file_list,
+                                     review_result, ai_model,
+                                     status, error_message, create_time)
+        VALUES (#{projectName}, #{branchName}, #{commitAuthor}, #{commitMessage},
+                #{diffCode}, #{fileCount}, #{additions}, #{deletions}, #{fileList},
+                #{reviewResult}, #{aiModel},
+                #{status}, #{errorMessage}, NOW())
+    </insert>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM t_review_record
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByQueryParams" resultMap="BaseResultMap">
+        SELECT DISTINCT r.id, r.project_name, r.branch_name, r.commit_author, r.commit_message,
+               r.diff_code, r.file_count, r.additions, r.deletions, r.file_list,
+               r.review_result, r.ai_model, r.status,
+               r.error_message, r.create_time
+        FROM t_review_record r
+        <if test="categoryId != null">
+            INNER JOIN t_review_issue i ON r.id = i.review_id AND i.category_id = #{categoryId}
+        </if>
+        <where>
+            <if test="projectName != null and projectName != ''">
+                AND r.project_name LIKE CONCAT('%', #{projectName}, '%')
+            </if>
+            <if test="author != null and author != ''">
+                AND r.commit_author LIKE CONCAT('%', #{author}, '%')
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (r.commit_message LIKE CONCAT('%', #{keyword}, '%')
+                OR r.review_result LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY r.create_time DESC
+    </select>
+
+    <select id="countGroupByProject" resultType="com.lz.server.model.vo.StatItemVO">
+        SELECT project_name AS name, COUNT(*) AS count
+        FROM t_review_record
+        GROUP BY project_name
+        ORDER BY count DESC
+    </select>
+
+    <select id="countGroupByAuthor" resultType="com.lz.server.model.vo.StatItemVO">
+        SELECT commit_author AS name, COUNT(*) AS count
+        FROM t_review_record
+        GROUP BY commit_author
+        ORDER BY count DESC
+    </select>
+
+    <select id="countGroupByModel" resultType="com.lz.server.model.vo.StatItemVO">
+        SELECT COALESCE(NULLIF(ai_model, ''), '未知模型') AS name, COUNT(*) AS count
+        FROM t_review_record
+        GROUP BY COALESCE(NULLIF(ai_model, ''), '未知模型')
+        ORDER BY count DESC
+    </select>
+
+    <select id="countTotal" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM t_review_record
+    </select>
+
+    <select id="countByStatus" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM t_review_record
+        WHERE status = #{status}
+    </select>
+
+    <select id="sumFileCount" resultType="java.lang.Long">
+        SELECT COALESCE(SUM(file_count), 0)
+        FROM t_review_record
+    </select>
+
+</mapper>

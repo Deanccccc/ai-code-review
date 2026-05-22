@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lz.server.mapper.ReviewIssueMapper">
+
+    <resultMap id="BaseResultMap" type="com.lz.server.model.entity.ReviewIssue">
+        <id column="id" property="id"/>
+        <result column="review_id" property="reviewId"/>
+        <result column="category_id" property="categoryId"/>
+        <result column="description" property="description"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.lz.server.model.entity.ReviewIssue" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO t_review_issue (review_id, category_id, description, create_time)
+        VALUES (#{reviewId}, #{categoryId}, #{description}, NOW())
+    </insert>
+
+    <insert id="insertBatch" parameterType="list">
+        INSERT INTO t_review_issue (review_id, category_id, description, create_time)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.reviewId}, #{item.categoryId}, #{item.description}, NOW())
+        </foreach>
+    </insert>
+
+    <select id="countGroupByCategory" resultType="com.lz.server.model.vo.StatItemVO">
+        SELECT c.name AS name, COUNT(*) AS count
+        FROM t_review_issue i
+        JOIN t_issue_category c ON i.category_id = c.id
+        GROUP BY i.category_id, c.name
+        ORDER BY count DESC
+    </select>
+
+    <select id="countGroupByDate" resultType="com.lz.server.model.vo.TrendVO">
+        SELECT DATE_FORMAT(i.create_time, '%Y-%m-%d') AS date, COUNT(*) AS count
+        FROM t_review_issue i
+        WHERE i.create_time >= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+        GROUP BY DATE_FORMAT(i.create_time, '%Y-%m-%d')
+        ORDER BY DATE_FORMAT(i.create_time, '%Y-%m-%d') ASC
+    </select>
+
+    <select id="selectByReviewId" resultType="com.lz.server.model.vo.ReviewIssueVO">
+        SELECT i.id, i.review_id AS reviewId, i.category_id AS categoryId, i.description, c.name AS categoryName
+        FROM t_review_issue i
+        LEFT JOIN t_issue_category c ON i.category_id = c.id
+        WHERE i.review_id = #{reviewId}
+        ORDER BY i.category_id, i.id
+    </select>
+
+    <select id="selectAllCategories" resultType="com.lz.server.model.vo.IssueCategoryVO">
+        SELECT id, name, sort_order AS sortOrder
+        FROM t_issue_category
+        ORDER BY sort_order
+    </select>
+
+</mapper>

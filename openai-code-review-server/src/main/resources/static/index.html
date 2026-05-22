@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>AI 代码评审系统</title>
+    <!-- 主CDN: bootcdn (国内可用) -->
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/element-plus/2.3.9/index.css">
+    <!-- 预留：diff2html CSS 内联备用 -->
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/diff2html/3.4.47/bundles/css/diff2html.min.css"
+          onerror="this.remove();var s=document.createElement('link');s.rel='stylesheet';s.href='https://unpkg.com/diff2html@3.4.47/bundles/css/diff2html.min.css';document.head.appendChild(s);">
+    <style>
+        body { margin: 0; background: #f5f7fa; font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", sans-serif; }
+        #app { min-height: 100vh; }
+        .header { background: #1a1a2e; color: #eee; padding: 16px 32px; font-size: 20px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+        .header .title { display: flex; align-items: center; gap: 8px; }
+        .header .subtitle { font-size: 13px; color: #8892b0; margin-left: 12px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+        .search-bar { background: #fff; padding: 20px 24px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+        .diff-section { background: #fff; border-radius: 8px; margin-top: 20px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+        .diff-section .section-title { padding: 12px 20px; font-weight: 600; border-bottom: 1px solid #ebeef5; background: #fafafa; display: flex; align-items: center; justify-content: space-between; }
+        .review-markdown { background: #fff; border-radius: 8px; padding: 20px 24px; margin-top: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); line-height: 1.8; }
+        .review-markdown h2 { border-bottom: 2px solid #409EFF; padding-bottom: 6px; }
+        .review-markdown code { background: #f0f2f5; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+        .review-markdown pre { background: #282c34; color: #abb2bf; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .back-btn { cursor: pointer; color: #8892b0; }
+        .back-btn:hover { color: #fff; }
+        .empty-state { text-align: center; padding: 80px 0; color: #909399; }
+        .d2h-wrapper { max-height: 70vh; overflow: auto; }
+        .error-banner { background: #FEF0F0; border: 1px solid #FDE2E2; color: #F56C6C; padding: 16px 24px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <!-- 如果Vue没加载，这里会显示原始内容 -->
+    <div style="padding:60px;text-align:center;color:#909399">
+        <h2>💻 AI 代码评审系统</h2>
+        <p>正在加载中...</p>
+        <p style="font-size:12px;margin-top:20px">如果长时间无响应，请检查网络连接</p>
+    </div>
+</div>
+
+<!-- CDN脚本：bootcdn优先，unpkg备用 -->
+<script>
+// 动态加载脚本，优先bootcdn
+(function(){
+    var BOOTCDN_BASE = 'https://cdn.bootcdn.net/ajax/libs'
+    var scripts = [
+        { test: 'Vue',            bootcdn: BOOTCDN_BASE + '/vue/3.3.4/vue.global.prod.js',        fallback: 'https://unpkg.com/vue@3.3.4/dist/vue.global.prod.js' },
+        { test: 'ElementPlus',    bootcdn: BOOTCDN_BASE + '/element-plus/2.3.9/index.full.min.js', fallback: 'https://unpkg.com/element-plus@2.3.9/dist/index.full.min.js' },
+        { test: 'marked',         bootcdn: BOOTCDN_BASE + '/marked/5.1.0/marked.min.js',           fallback: 'https://unpkg.com/marked@5.1.0/marked.min.js' },
+        { test: 'Diff2HtmlUI',    bootcdn: null,                                                   fallback: 'https://unpkg.com/diff2html@3.4.47/bundles/js/diff2html-ui.min.js' }
+    ]
+
+    function loadScript(url, cb) {
+        var s = document.createElement('script')
+        s.src = url
+        s.onload = cb
+        s.onerror = function(){ cb(new Error('Failed to load: ' + url)) }
+        document.head.appendChild(s)
+    }
+
+    function loadDiffCss(cb) {
+        var l = document.createElement('link')
+        l.rel = 'stylesheet'
+        l.href = 'https://unpkg.com/diff2html@3.4.47/bundles/css/diff2html.min.css'
+        l.onload = cb
+        l.onerror = cb
+        document.head.appendChild(l)
+    }
+
+    function loadAll(idx) {
+        if (idx >= scripts.length) {
+            loadDiffCss(function(){ window.__scriptsReady = true })
+            return
+        }
+        var item = scripts[idx]
+        function tryFallback(err) {
+            if (item.fallback) {
+                console.warn('BootCDN failed for ' + item.test + ', trying unpkg fallback')
+                loadScript(item.fallback, function(e2) {
+                    if (e2) console.error('All CDNs failed for ' + item.test)
+                    loadAll(idx + 1)
+                })
+            } else {
+                if (err) console.error('Failed to load ' + item.test)
+                loadAll(idx + 1)
+            }
+        }
+        if (item.bootcdn) {
+            loadScript(item.bootcdn, function(err) {
+                if (err || (item.test && !window[item.test] && !window[item.test+''])) {
+                    tryFallback(err)
+                } else {
+                    loadAll(idx + 1)
+                }
+            })
+        } else {
+            loadScript(item.fallback, function(err) {
+                if (err) console.error('Failed to load ' + item.test)
+                loadAll(idx + 1)
+            })
+        }
+    }
+    loadAll(0)
+})()
+</script>
+
+<script>
+// 等待所有脚本加载完成后初始化Vue应用
+(function wait() {
+    if (window.__scriptsReady && typeof Vue !== 'undefined' && typeof ElementPlus !== 'undefined') {
+        initApp()
+    } else if (document.readyState === 'complete') {
+        // 超时5秒还不行就报错
+        setTimeout(function() {
+            if (!window.__appStarted) {
+                document.getElementById('app').innerHTML =
+                    '<div style="padding:60px;text-align:center">' +
+                    '<h2 style="color:#F56C6C">⚠️ 资源加载失败</h2>' +
+                    '<p>请检查网络连接后刷新页面重试</p>' +
+                    '<p style="font-size:12px;color:#909399">CDN依赖: Vue3 + ElementPlus + marked + diff2html</p>' +
+                    '</div>'
+            }
+        }, 8000)
+    } else {
+        setTimeout(wait, 100)
+    }
+})()
+
+function initApp() {
+    window.__appStarted = true
+    var API_BASE = '/api/review'
+
+    var app = Vue.createApp({
+        setup: function() {
+            var view = Vue.ref('list')
+            var loading = Vue.ref(false)
+            var tableData = Vue.ref([])
+            var total = Vue.ref(0)
+            var serverError = Vue.ref('')
+            var searchForm = Vue.reactive({ page: 1, size: 10, projectName: '', author: '', keyword: '' })
+
+            var detailData = Vue.ref({})
+            var detailLoaded = Vue.ref(false)
+            var diffMode = Vue.ref('side-by-side')
+            var diffContainer = Vue.ref(null)
+
+            var statsData = Vue.ref({})
+
+            function formatTime(t) {
+                if (!t) return '-'
+                var d = new Date(t)
+                if (isNaN(d.getTime())) {
+                    if (Array.isArray(t)) d = new Date(t[0], t[1]-1, t[2], t[3]||0, t[4]||0, t[5]||0)
+                    else return String(t)
+                }
+                var pad = function(n) { return String(n).padStart(2, '0') }
+                return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+            }
+
+            async function search() {
+                loading.value = true
+                serverError.value = ''
+                try {
+                    var params = new URLSearchParams()
+                    params.set('page', searchForm.page)
+                    params.set('size', searchForm.size)
+                    if (searchForm.projectName) params.set('projectName', searchForm.projectName)
+                    if (searchForm.author) params.set('author', searchForm.author)
+                    if (searchForm.keyword) params.set('keyword', searchForm.keyword)
+                    console.log('[DEBUG] fetch list:', API_BASE + '/list?' + params.toString())
+                    var res = await fetch(API_BASE + '/list?' + params.toString())
+                    var json = await res.json()
+                    console.log('[DEBUG] list response code:', json.code, 'total:', json.data && json.data.total)
+                    if (json.code === 200 && json.data) {
+                        tableData.value = json.data.list || []
+                        total.value = json.data.total || 0
+                    } else {
+                        serverError.value = '接口返回异常: code=' + json.code + ' msg=' + json.message
+                    }
+                } catch(e) {
+                    console.error('[ERROR] fetch list:', e)
+                    serverError.value = '请求失败: ' + e.message
+                } finally {
+                    loading.value = false
+                }
+            }
+
+            function resetSearch() {
+                searchForm.page = 1
+                searchForm.projectName = ''
+                searchForm.author = ''
+                searchForm.keyword = ''
+                search()
+            }
+
+            async function openDetail(row) {
+                view.value = 'detail'
+                detailLoaded.value = false
+                detailData.value = {}
+                try {
+                    console.log('[DEBUG] fetch detail id:', row.id)
+                    var res = await fetch(API_BASE + '/' + row.id)
+                    var json = await res.json()
+                    console.log('[DEBUG] detail response code:', json.code)
+                    if (json.code === 200 && json.data) {
+                        detailData.value = json.data
+                        detailLoaded.value = true
+                        await Vue.nextTick()
+                        if (detailData.value.diffCode) renderDiff()
+                    }
+                } catch(e) {
+                    console.error('[ERROR] fetch detail:', e)
+                }
+            }
+
+            function renderMarkdown(md) {
+                if (!md) return ''
+                if (typeof marked !== 'undefined' && marked.parse) return marked.parse(md)
+                return md.replace(/</g, '&lt;').replace(/\n/g, '<br>')
+            }
+
+            function renderDiff() {
+                var code = detailData.value.diffCode
+                var container = diffContainer.value
+                if (!code || !container) {
+                    console.warn('[DEBUG] renderDiff skipped: no code or container')
+                    return
+                }
+                console.log('[DEBUG] renderDiff called, code length:', code.length)
+                console.log('[DEBUG] diff first 200 chars:', code.substring(0, 200))
+                try {
+                    if (typeof Diff2HtmlUI === 'undefined') {
+                        container.innerHTML = '<div class="error-banner">diff2html 库未加载，请检查网络后刷新页面</div>'
+                        return
+                    }
+                    container.innerHTML = ''
+                    var ui = new Diff2HtmlUI(container, code, {
+                        inputFormat: 'diff',
+                        outputFormat: diffMode.value,
+                        drawFileList: false,
+                        matching: 'lines',
+                        highlight: true,
+                        rawTemplates: {}
+                    })
+                    ui.draw()
+                    console.log('[DEBUG] diff2html render success')
+                } catch(e) {
+                    console.error('[ERROR] diff render:', e)
+                    container.innerHTML = '<pre style="padding:16px;overflow:auto;color:#333;background:#f8f8f8;font-size:13px;border:1px solid #ebeef5;border-radius:4px">' + code.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>'
+                }
+            }
+
+            function goBack() {
+                view.value = 'list'
+                detailLoaded.value = false
+            }
+
+            async function loadStats() {
+                try {
+                    var res = await fetch(API_BASE + '/stats')
+                    var json = await res.json()
+                    console.log('[DEBUG] stats response:', json.code)
+                    if (json.code === 200 && json.data) {
+                        statsData.value = json.data
+                    }
+                } catch(e) {
+                    console.error('[ERROR] fetch stats:', e)
+                }
+            }
+
+            Vue.onMounted(function() {
+                console.log('[DEBUG] App mounted, start fetching list...')
+                search()
+            })
+
+            Vue.watch(view, function(val) {
+                if (val === 'stats') loadStats()
+                if (val === 'list') search()
+            })
+
+            return {
+                view: view,
+                loading: loading,
+                tableData: tableData,
+                total: total,
+                serverError: serverError,
+                searchForm: searchForm,
+                detailData: detailData,
+                detailLoaded: detailLoaded,
+                diffMode: diffMode,
+                diffContainer: diffContainer,
+                statsData: statsData,
+                formatTime: formatTime,
+                search: search,
+                resetSearch: resetSearch,
+                openDetail: openDetail,
+                renderMarkdown: renderMarkdown,
+                renderDiff: renderDiff,
+                goBack: goBack,
+                loadStats: loadStats
+            }
+        },
+        template:
+            '<div>' +
+            '  <div class="header">' +
+            '    <div class="title">' +
+            '      <span>💻 AI 代码评审系统</span>' +
+            '      <span class="subtitle" v-if="view === \'list\'">Code Review Dashboard</span>' +
+            '      <span class="subtitle" v-else><span class="back-btn" @click="goBack">← 返回列表</span></span>' +
+            '    </div>' +
+            '    <div>' +
+            '      <el-button size="small" type="primary" @click="view = \'list\'" :plain="view !== \'list\'">评审列表</el-button>' +
+            '      <el-button size="small" type="primary" @click="view = \'stats\'" :plain="view !== \'stats\'">统计看板</el-button>' +
+            '    </div>' +
+            '  </div>' +
+            '  <div class="container">' +
+            '    <!-- 列表页 -->' +
+            '    <template v-if="view === \'list\'">' +
+            '      <div class="error-banner" v-if="serverError" style="margin-bottom:20px">' +
+            '        ⚠️ {{ serverError }}' +
+            '      </div>' +
+            '      <div class="search-bar">' +
+            '        <el-form :inline="true" :model="searchForm">' +
+            '          <el-form-item label="项目"><el-input v-model="searchForm.projectName" placeholder="项目名称" clearable/></el-form-item>' +
+            '          <el-form-item label="作者"><el-input v-model="searchForm.author" placeholder="提交作者" clearable/></el-form-item>' +
+            '          <el-form-item label="关键词"><el-input v-model="searchForm.keyword" placeholder="提交信息/评审内容" clearable/></el-form-item>' +
+            '          <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="resetSearch">重置</el-button></el-form-item>' +
+            '        </el-form>' +
+            '      </div>' +
+            '      <el-table :data="tableData" stripe style="width:100%" v-loading="loading" @row-click="openDetail">' +
+            '        <el-table-column prop="id" label="ID" width="70"/>' +
+            '        <el-table-column prop="projectName" label="项目" width="180"/>' +
+            '        <el-table-column prop="branchName" label="分支" width="120"/>' +
+            '        <el-table-column prop="commitAuthor" label="提交者" width="120"/>' +
+            '        <el-table-column prop="commitMessage" label="提交信息" min-width="200" show-overflow-tooltip/>' +
+            '        <el-table-column prop="aiModel" label="AI模型" width="150"/>' +
+            '        <el-table-column label="状态" width="80">' +
+            '          <template v-slot:default="scope"><el-tag :type="scope.row.status === 1 ? \'success\' : \'danger\'" size="small">{{ scope.row.status === 1 ? \'成功\' : \'失败\' }}</el-tag></template>' +
+            '        </el-table-column>' +
+            '        <el-table-column label="时间" width="170"><template v-slot:default="scope">{{ formatTime(scope.row.createTime) }}</template></el-table-column>' +
+            '        <el-table-column label="操作" width="80" fixed="right">' +
+            '          <template v-slot:default="scope"><el-button type="primary" link size="small" @click.stop="openDetail(scope.row)">详情</el-button></template>' +
+            '        </el-table-column>' +
+            '      </el-table>' +
+            '      <div style="text-align:center;margin-top:20px">' +
+            '        <el-pagination v-model:current-page="searchForm.page" v-model:page-size="searchForm.size" :page-sizes="[10,20,50]" :total="total" layout="total, sizes, prev, pager, next" @size-change="search" @current-change="search"/>' +
+            '      </div>' +
+            '      <div class="empty-state" v-if="!loading && tableData.length === 0 && !serverError">' +
+            '        <p style="font-size:36px">📋</p><p>暂无评审记录</p><p style="font-size:12px">当SDK提交评审数据后，记录将显示在此处</p>' +
+            '      </div>' +
+            '    </template>' +
+            '    <!-- 详情页 -->' +
+            '    <template v-if="view === \'detail\'">' +
+            '      <el-card>' +
+            '        <template v-slot:header>' +
+            '          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
+            '            <el-tag type="primary">{{ detailData.projectName }}</el-tag>' +
+            '            <el-tag type="warning">{{ detailData.branchName }}</el-tag>' +
+            '            <span>👤 <b>{{ detailData.commitAuthor }}</b></span>' +
+            '            <span style="color:#909399">🕐 {{ formatTime(detailData.createTime) }}</span>' +
+            '            <span>🤖 {{ detailData.aiModel }}</span>' +
+            '            <el-tag :type="detailData.status === 1 ? \'success\' : \'danger\'" size="small">{{ detailData.status === 1 ? \'评审成功\' : \'评审失败\' }}</el-tag>' +
+            '          </div>' +
+            '        </template>' +
+            '        <p style="color:#606266;margin-bottom:16px"><b>提交信息：</b>{{ detailData.commitMessage || \'无\' }}</p>' +
+            '        <p v-if="detailData.status === 0 && detailData.errorMessage" style="color:#F56C6C">⚠️ 错误信息：{{ detailData.errorMessage }}</p>' +
+            '      </el-card>' +
+            '      <div class="review-markdown" v-if="detailData.status === 1 && detailData.reviewResult" v-html="renderMarkdown(detailData.reviewResult)"></div>' +
+            '      <div class="diff-section" v-if="detailData.diffCode">' +
+            '        <div class="section-title">' +
+            '          <span>📄 代码变更对比</span>' +
+            '          <div><el-radio-group v-model="diffMode" size="small" @change="renderDiff"><el-radio-button value="side-by-side">左右对比</el-radio-button><el-radio-button value="line-by-line">上下对比</el-radio-button></el-radio-group></div>' +
+            '        </div>' +
+            '        <div class="d2h-wrapper" ref="diffContainer"></div>' +
+            '      </div>' +
+            '      <div class="empty-state" v-if="!detailData.diffCode && detailLoaded"><p>📭</p><p>没有代码变更记录</p></div>' +
+            '    </template>' +
+            '    <!-- 统计页 -->' +
+            '    <template v-if="view === \'stats\'">' +
+            '      <el-row :gutter="20" style="margin-bottom:20px">' +
+            '        <el-col :span="8"><el-card shadow="hover"><template v-slot:header>📊 评审总数</template><div style="font-size:32px;font-weight:700;color:#409EFF">{{ statsData.totalCount || 0 }}</div></el-card></el-col>' +
+            '        <el-col :span="8"><el-card shadow="hover"><template v-slot:header>✅ 成功</template><div style="font-size:32px;font-weight:700;color:#67C23A">{{ statsData.successCount || 0 }}</div></el-card></el-col>' +
+            '        <el-col :span="8"><el-card shadow="hover"><template v-slot:header>❌ 失败</template><div style="font-size:32px;font-weight:700;color:#F56C6C">{{ statsData.failCount || 0 }}</div></el-card></el-col>' +
+            '      </el-row>' +
+            '      <el-row :gutter="20">' +
+            '        <el-col :span="12"><el-card shadow="hover"><template v-slot:header>📁 按项目统计</template><el-table :data="statsData.byProject || []" size="small"><el-table-column prop="name" label="项目"/><el-table-column prop="count" label="次数" width="100"/></el-table></el-card></el-col>' +
+            '        <el-col :span="12"><el-card shadow="hover"><template v-slot:header>👤 按作者统计</template><el-table :data="statsData.byAuthor || []" size="small"><el-table-column prop="name" label="作者"/><el-table-column prop="count" label="次数" width="100"/></el-table></el-card></el-col>' +
+            '      </el-row>' +
+            '    </template>' +
+            '  </div>' +
+            '</div>'
+    })
+
+    app.use(ElementPlus)
+    app.mount('#app')
+    console.log('[DEBUG] Vue app mounted successfully')
+}
+</script>
+</body>
+</html>
